@@ -1,0 +1,1 @@
+"""Thinking Algorithm application package."""
