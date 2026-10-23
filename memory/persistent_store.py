@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Callable
+
+logger = logging.getLogger(__name__)
 
 
 def load_records(path: Path) -> list[dict[str, object]]:
@@ -13,10 +16,24 @@ def load_records(path: Path) -> list[dict[str, object]]:
         return []
 
     records: list[dict[str, object]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    invalid_lines_found = False
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if not line.strip():
             continue
-        records.append(json.loads(line))
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            invalid_lines_found = True
+            logger.warning("Skipping malformed JSONL record in %s at line %s.", path, line_number)
+            continue
+        if not isinstance(payload, dict):
+            invalid_lines_found = True
+            logger.warning("Skipping non-object JSONL record in %s at line %s.", path, line_number)
+            continue
+        records.append(payload)
+
+    if invalid_lines_found:
+        save_records(path, records)
     return records
 
 

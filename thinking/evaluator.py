@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
 from config import Settings, get_settings
 from memory.retriever import RetrievedContext, retrieve_context
-from models.llm_client import chat_completion_text
+from models import llm_client
 
 
 @dataclass(frozen=True)
@@ -93,24 +94,34 @@ def _heuristic_judge(
     contexts: list[RetrievedContext],
     settings: Settings,
 ) -> EvaluationResult:
-    profile = _perspective_profile(answer)
     problem_tokens = _tokenize(problem)
     answer_tokens = _tokenize(answer)
     lowered_answer = answer.lower()
 
     problem_overlap = len(problem_tokens.intersection(answer_tokens)) / max(len(problem_tokens), 1)
-    relevance_bonus = 1 if contexts else 0
-
-    refinement_correctness_bonus = 1 if "refinement feedback used:" in lowered_answer else 0
-    refinement_clarity_bonus = 2 if "execution checkpoints:" in lowered_answer else 0
-    refinement_usefulness_bonus = 2 if "success signal:" in lowered_answer else 0
-
-    correctness = _clamp(
-        5 + round(problem_overlap * 2) + profile["correctness"] + relevance_bonus + refinement_correctness_bonus
+    asks_for_steps = any(marker in problem.lower() for marker in ("how", "step", "build", "implement"))
+    asks_for_comparison = any(marker in problem.lower() for marker in ("compare", "difference", "vs", "versus"))
+    has_list_structure = bool(re.search(r"(^|\n)(- |\d+\. )", answer))
+    has_example = "example" in lowered_answer or "for example" in lowered_answer
+    has_internal_artifacts = any(
+        marker in lowered_answer for marker in ("score:", "evaluation", "pipeline", "agent", "controller")
     )
-    clarity = _clamp(5 + profile["clarity"] + (1 if len(answer) <= 80 else 0) + refinement_clarity_bonus)
+
+    correctness = _clamp(4 + round(problem_overlap * 4) + (1 if contexts else 0) - int(has_internal_artifacts))
+    clarity = _clamp(
+        4
+        + (1 if 20 <= len(answer.split()) <= 350 else 0)
+        + (1 if len(answer.splitlines()) <= 14 else 0)
+        + (1 if "." in answer else 0)
+        - int(has_internal_artifacts)
+    )
     usefulness = _clamp(
-        4 + profile["usefulness"] + (1 if problem_overlap >= 0.8 else 0) + refinement_usefulness_bonus
+        4
+        + (1 if problem_overlap >= 0.55 else 0)
+        + (1 if has_example else 0)
+        + (1 if has_list_structure and (asks_for_steps or asks_for_comparison) else 0)
+        + (1 if contexts else 0)
+        - int(has_internal_artifacts)
     )
 
     criteria = [
@@ -159,17 +170,11 @@ def _llm_judge(
     settings: Settings,
 ) -> EvaluationResult:
     prompt = _build_judge_prompt(problem, answer, contexts, settings.evaluation_threshold)
-    content = chat_completion_text(
-        base_url=settings.judge_base_url,
-        api_key=settings.judge_api_key,
-        model=settings.judge_model,
-        system_prompt=(
-            "You are an LLM judge. Evaluate candidate answers using retrieved context and return JSON only."
-        ),
+    content = llm_client.llm_call_for_purpose(
+        settings,
+        "judge",
+        system_prompt="You are an LLM judge. Evaluate candidate answers using retrieved context and return JSON only.",
         user_prompt=prompt,
-        temperature=0,
-        top_p=1,
-        max_tokens=800,
     )
 
     parsed = _extract_json(content)
@@ -249,18 +254,6 @@ def _extract_json(content: str) -> dict[str, Any]:
         return json.loads(cleaned[start : end + 1])
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"Judge output was not valid JSON: {content!r}") from exc
-
-
-def _perspective_profile(answer: str) -> dict[str, int]:
-    lowered = answer.lower()
-    first_line = lowered.splitlines()[0] if lowered.splitlines() else lowered
-    if "scientific explanation" in first_line or "scientific perspective" in first_line:
-        return {"correctness": 1, "clarity": 0, "usefulness": 0}
-    if "logical reasoning" in first_line or "logical perspective" in first_line:
-        return {"correctness": 0, "clarity": 1, "usefulness": 1}
-    if "practical solution" in first_line or "practical perspective" in first_line:
-        return {"correctness": 0, "clarity": 0, "usefulness": 5}
-    return {"correctness": 0, "clarity": 0, "usefulness": 0}
 
 
 def _tokenize(text: str) -> set[str]:

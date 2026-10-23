@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from brain.output_formatter import format_output
 from config import Settings, get_settings
 from memory.retriever import RetrievedContext, retrieve_context
-from models.llm_client import chat_completion_text
+from models import llm_client
 from thinking.evaluator import EvaluationResult
 
 
@@ -27,12 +28,13 @@ def refine_answer(
     answer: str,
     feedback: str,
     settings: Settings | None = None,
+    response_style: str = "structured",
 ) -> str:
     """Improve a selected answer using one refinement pass."""
     active_settings = settings or get_settings()
     refinement_query = (
         f"{problem}\n{answer}\n{feedback}\n"
-        "refine improve answer correctness clarity usefulness single-pass iteration"
+        "improve answer clarity depth examples usefulness"
     )
     contexts = retrieve_context(
         refinement_query,
@@ -40,14 +42,8 @@ def refine_answer(
         top_k=active_settings.refiner_retrieval_top_k,
         settings=active_settings,
     )
-
-    if active_settings.enable_llm_refiner and active_settings.refiner_api_key:
-        try:
-            return _llm_refine_answer(problem, answer, feedback, contexts, active_settings)
-        except RuntimeError:
-            pass
-
-    return _heuristic_refine_answer(problem, answer, feedback, contexts)
+    refined = _llm_refine_answer(problem, answer, feedback, contexts, response_style, active_settings)
+    return format_output(refined, response_style=response_style)
 
 
 def _llm_refine_answer(
@@ -55,43 +51,18 @@ def _llm_refine_answer(
     answer: str,
     feedback: str,
     contexts: list[RetrievedContext],
+    response_style: str,
     settings: Settings,
 ) -> str:
-    prompt = _build_refinement_prompt(problem, answer, feedback, contexts)
-    return chat_completion_text(
-        base_url=settings.refiner_base_url,
-        api_key=settings.refiner_api_key,
-        model=settings.refiner_model,
+    prompt = _build_refinement_prompt(problem, answer, feedback, contexts, response_style)
+    return llm_client.llm_call_for_purpose(
+        settings,
+        "refiner",
         system_prompt=(
-            "You improve answers for a reasoning engine. "
-            "Return one stronger structured answer only, with no extra explanation."
+            "You improve answers for a conversational AI system. "
+            "Preserve the substance, remove generic phrasing, and produce a stronger answer with natural wording."
         ),
         user_prompt=prompt,
-        temperature=settings.refiner_temperature,
-        top_p=settings.refiner_top_p,
-        max_tokens=settings.refiner_max_tokens,
-    )
-
-
-def _heuristic_refine_answer(
-    problem: str,
-    answer: str,
-    feedback: str,
-    contexts: list[RetrievedContext],
-) -> str:
-    first_line = answer.splitlines()[0].strip() if answer.splitlines() else "Refined Perspective:"
-    perspective = first_line if first_line.endswith(":") else f"{first_line}:"
-    guidance = ", ".join(item.source for item in contexts)
-    return (
-        f"{perspective}\n"
-        f"Summary: {problem} should be answered with a clearer explanation of what is happening, why it matters, and what practical decision follows.\n"
-        f"Analysis: Improve the original answer by making the reasoning explicit, tightening weak claims, and connecting the response more directly to the user's real decision.\n"
-        f"Implications: Highlight the main tradeoffs, likely constraints, and expected outcome so the answer is easier to trust and act on.\n"
-        f"Recommended next step: Start with one measurable action, define who owns it, and review the result against the strongest risk before expanding scope.\n"
-        f"Execution checkpoints: name the first milestone, define the review window, and state what evidence would count as progress.\n"
-        f"Success signal: the answer is stronger when it is more specific, more actionable, and better aligned with the evaluation feedback.\n"
-        f"Refinement feedback used: {feedback}\n"
-        f"Refinement guidance: grounded by {guidance}."
     )
 
 
@@ -100,37 +71,43 @@ def _build_refinement_prompt(
     answer: str,
     feedback: str,
     contexts: list[RetrievedContext],
+    response_style: str,
 ) -> str:
     joined_context = "\n\n".join(
         f"Source: {item.source}\nRelevance: {item.relevance:.3f}\nContent: {item.content}" for item in contexts
-    )
+    ) or "No additional context was retrieved."
     return f"""
-Improve the answer below using the evaluation feedback.
+Improve the draft answer below.
 
-Problem:
+User question:
 {problem}
 
-Original answer:
+Current draft:
 {answer}
 
-Evaluation feedback:
+Internal review feedback:
 {feedback}
 
-Retrieved refinement guidance:
+Relevant context:
 {joined_context}
 
+Target style:
+{_style_guidance(response_style)}
+
 Rules:
-- Perform exactly one refinement pass.
-- Do not explain what you changed.
 - Return only the improved answer.
-- Keep the same perspective title.
-- Use plain text.
-- Use this structure:
-Perspective:
-Summary: ...
-Analysis: ...
-Implications: ...
-Recommended next step: ...
-Execution checkpoints: ...
-Success signal: ...
+- Do not mention the review process, scores, or internal system behavior.
+- Remove generic filler and make the answer specific to the question.
+- Use examples only if they help the user understand the answer.
+
+Write the final refined answer.
 """
+
+
+def _style_guidance(response_style: str) -> str:
+    styles = {
+        "simple": "Short, direct explanation with no headings.",
+        "structured": "Clear explanation with small readable sections or bullets only when useful.",
+        "detailed": "Detailed explanation with clean structure and relevant examples.",
+    }
+    return styles.get(response_style, styles["structured"])

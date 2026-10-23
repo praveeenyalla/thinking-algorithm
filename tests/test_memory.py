@@ -81,7 +81,7 @@ def test_case_memory_retrieves_similar_high_quality_solution(tmp_path) -> None:
 
     stored = store_case(
         "Impact of AI on jobs",
-        "Practical Perspective:\nSummary: Use reskilling, role redesign, and human oversight.",
+        "Use reskilling, role redesign, and human oversight to adapt job changes.",
         9,
         settings=settings,
     )
@@ -116,7 +116,7 @@ def test_cleanup_removes_old_unused_memory_and_cases(tmp_path) -> None:
     )
     store_case(
         "Old AI governance checklist",
-        "Practical Perspective:\nSummary: Old retained case.",
+        "An old retained case about AI governance that should be cleaned up.",
         9,
         settings=settings,
     )
@@ -140,3 +140,19 @@ def test_cleanup_removes_old_unused_memory_and_cases(tmp_path) -> None:
     assert cleanup_result["case_deleted"] >= 1
     assert load_records(settings.memory_store_path) == []
     assert load_records(settings.case_memory_path) == []
+
+
+def test_load_records_skips_and_repairs_malformed_jsonl_lines(tmp_path) -> None:
+    path = tmp_path / "broken.jsonl"
+    path.write_text('{"id":"good-1","value":1}\n}\nnull\n{"id":"good-2","value":2}\n', encoding="utf-8")
+
+    records = load_records(path)
+
+    assert records == [
+        {"id": "good-1", "value": 1},
+        {"id": "good-2", "value": 2},
+    ]
+    assert path.read_text(encoding="utf-8") == (
+        '{"id": "good-1", "value": 1}\n'
+        '{"id": "good-2", "value": 2}\n'
+    )

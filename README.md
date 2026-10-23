@@ -1,8 +1,8 @@
-# AI Brain System v6
+# AI Brain System v7
 
-A brain-inspired AI system built on top of existing models rather than model training. The current implementation combines a controller layer, persistent managed memory, a thinking layer, a lightweight learning layer, a FastAPI interface, and a browser UI.
+A brain-inspired AI system built on top of existing models rather than model training. The current implementation combines a controller layer, persistent managed memory, a controlled multi-agent deliberate reasoning layer, a lightweight learning layer, a FastAPI interface, and a browser UI.
 
-Persistent Memory v6 now includes:
+Persistent memory and v7 reasoning now include:
 
 - durable JSONL-backed storage for episodic memory and case memory
 - chunking for knowledge and answer memory
@@ -25,6 +25,7 @@ The architecture changes follow the ideas in the images you provided:
 
 ## Core architecture
 
+- `agents/`: research, logic, creative, critic, evaluator, and synthesizer agents
 - `api/`: FastAPI endpoints and browser entrypoint
 - `brain/`: controller and strategy selection
 - `memory/`: chunking, embedding, retrieval, case memory, cleanup, and persistent storage
@@ -45,17 +46,17 @@ See [brain_system_mapping.md](/D:/Thinking algorithm/knowledge_base/brain_system
 3. The memory layer loads persistent episodic and case records from disk.
 4. The controller retrieves relevant context and checks for a reusable high-quality case.
 5. The thinking layer either reuses the case directly or generates fresh candidates.
-6. The evaluator scores answers on correctness, clarity, and usefulness.
-7. The selector picks the strongest candidate.
-8. For deliberate queries, the refiner improves the chosen answer once and the evaluator scores it again.
-9. The controller returns the better of the original or refined answer.
-10. High-quality final answers are written back into persistent chunk memory and persistent case memory.
-11. Retrieval updates usage counts so old, unused records can be pruned later.
+6. For deliberate queries, the controller runs the v7 multi-agent loop: research brief, parallel research/logic/creative drafts, critique, evaluation, synthesis, and one refinement pass.
+7. The evaluator scores answers on correctness, clarity, and usefulness.
+8. The controller returns the better of the original or refined answer.
+9. High-quality final answers are written back into persistent chunk memory and persistent case memory.
+10. Retrieval updates usage counts so old, unused records can be pruned later.
 
 ## Project structure
 
 ```text
 ai-brain-system/
+|-- agents/
 |-- api/
 |-- brain/
 |-- knowledge_base/
@@ -79,7 +80,7 @@ ai-brain-system/
 |-- pyproject.toml
 ```
 
-`modules/` remains on disk for backward compatibility, but the active architecture now runs through `brain/`, `memory/`, `thinking/`, `learning/`, `models/`, and `ui/`.
+`modules/` remains on disk for backward compatibility, but the active architecture now runs through `agents/`, `brain/`, `memory/`, `thinking/`, `learning/`, `models/`, and `ui/`.
 
 ## Quick start
 
@@ -133,8 +134,8 @@ setx EMBEDDING_BASE_URL "https://api.openai.com/v1"
 
 - No raw model training
 - No biological brain simulation
-- No multi-agent planner yet
+- No autonomous multi-agent debate loop yet
 - No dedicated external vector database yet
 - No long-term autonomous self-improvement loop yet
 
-What exists now is a practical staged system: controller, persistent memory, retrieval, reasoning, single-pass refinement, lifecycle cleanup, API, and UI.
+What exists now is a practical staged system: controller, persistent memory, retrieval, controlled multi-agent deliberate reasoning, single-pass refinement, lifecycle cleanup, API, and UI.

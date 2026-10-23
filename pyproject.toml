@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-brain-system"
-version = "0.6.0"
-description = "Brain-inspired AI system with persistent managed memory, controller, reasoning, API, and UI layers."
+version = "0.7.0"
+description = "Brain-inspired AI system with persistent managed memory, controller-led multi-agent reasoning, API, and UI layers."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -27,4 +27,4 @@ testpaths = ["tests"]
 include-package-data = true
 
 [tool.setuptools.packages.find]
-include = ["api", "brain", "learning", "memory", "models", "modules", "thinking", "utils"]
+include = ["agents", "api", "brain", "learning", "memory", "models", "modules", "thinking", "utils"]
